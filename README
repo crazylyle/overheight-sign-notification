@@ -1,0 +1,174 @@
+Various roads in Texas have overpasses.  Each overpass has
+a clearance height, around 16 feet.  Occasionally a truck will
+try to go under the overpass which is taller than the
+clearance height and hit the overpass, causing damage to
+the truck and the overpass.  Where this is likely to
+happen, the response is a pair of sensors, one on each
+side of the road with an infrared beam between them at
+the clearance height.  If a truck breaks the beam, it
+creates a signal which causes flashing lights around
+a "LOW CLEARANCE" sign telling the truck to get off and
+go around.
+
+The new project is to add a counter for these events.
+In addition to a break in the beam causing the lights
+to flash, it will also send a pulse to a "device"
+which is to count and report these events.  The
+"device" chosen is a Moxa ioPAC 5542-C-T.  The Moxa ioPAC 5542-C-T is
+in fact a small computer.  It has an ARM processor,
+and runs Linux with both Ethernet and serial line
+communications.
+
+The code was written on an x86 Linux desktop linking
+in a dummy set of functions that match what Moxa
+provides.  Then it was cross-compiled for an ARM
+processor, linked with Moxa's real library, and
+ftp-ed to the Moxa to run.
+
+The code was written in Fall 2018, and delivered
+to TxDOT from Nov 2018 to July 2019. It seems to
+be working correctly for them.  We are providing
+it here, as open source software, in case anyone
+else has a similar problem and wants to use this
+code.
+
+In addition to the program, we modified the initd
+part of the Linux boot process to automatically
+start the program when the Moxa is powered up
+(or loses power and is restarted).
+
+And there is a configuration file needed to tell
+the program the specifics for each site that it
+is installed at.  See the INSTALL file for the
+specifics of how to set up a Moxa.
+
+
+The design is to count the events, which will come
+in on line DI0 or DI1, and then send them back to
+a server in an XML format.  The project is to code
+up the Moxa to do this.  Moxa is apparently a small
+Chinese hardware manufacturer, so the documentation
+is difficult to follow, at best.  On the other hand,
+the server is run by the State of Texas, so a large
+bureacracy, with many clients and tasks.
+
+Our first mis-understanding was that we assumed we
+were reporting these in real-time.  That is, an
+event would occur, we would format up an XML
+representation of it, and send it off to the server.
+The question then was simply how to format the XML.
+
+The documentation that we have on the XML is,
+itself, written in XML, apparently meant to be
+viewed thru an XML viewer, which we don't have.
+But looking at the file structure and the various
+files, it seems that there are requests, responses,
+and messages.  The only messages having to do with
+an overheight event are initiated by the server
+asking for such events.  So the server is polling,
+possibly only every day, or every week, or sometime,
+asking for the events; we do not report them in
+real time.  Rather the Moxa is to accumulate the
+events until it is asked for them, and then send
+a list of them back to the server.
+
+The server asks by sending an XML request message
+to the MOXA, over ethernet.  The request message
+is something on the order of:
+
+<retrieveDataReq>
+  <RequestType>
+    <overheghtData>
+		TRUE
+    </overheghtData>
+  </RequestType>
+</retrieveDataReq>
+
+(Not sure if the <RequestType> is misspelled, or
+deliberately written that way.)
+
+The response is of the order of:
+
+<refid>
+	127
+</refid>
+<icdVersion>
+	1.0
+</icdVersion>	
+<responsetype>
+	overheightdata
+</responsetype>
+<responseData>
+    <overheightUpdateMsg>
+    	<id>
+    		<providerName>
+    			number1
+    		</providerName>
+    		<resourceType>			
+    			ovhed
+    		</resourceType>
+    		<centerID>
+    		    AUSDIST
+    		</centerID>
+    	</id>
+    	<overheightReadingData>
+    		<readingTime>
+    			hh:mm:ss
+    		</readingTime>
+    		<readingDate>
+    			YYYY-MM-DD
+    		</readingDate>
+    		<triggerHeight>
+    			204
+    		</triggerHeight>
+    	</overheightReadingData>
+    </overheightUpdateMsg>
+</responseData>
+
+All this is just XML in ASCII.  Before it are some
+binary words including the length of the XML (in bytes).
+So the above XML would be 608 bytes long.
+
+We can have as many <overheightReadingData>
+entries as necessary.  Possibly zero (we think
+zero is the normal case), one, two, three, ...
+We don't expect very many.
+
+The fields of the <id> should uniquely identify
+which device is sending the response.  The specific
+values will then vary from device to device, and
+should match what the server expects to see.
+Presumably the server has a file that will map
+<id> values to a specific device at a specific
+location (like "number1/ovhed/AUSDIST" is at
+5100 North Interstate 35, SouthBound.)
+
+The <triggerHeight> is in inches, and (presumably)
+will not change for a given device, once it is installed
+and configured.
+
+The <readingTime> is apparently a 24-hour clock.
+
+There is supposed to be a program that will test the
+correctness of our XML available from the server, so
+that we can check it out before we go live.
+
+The program in the MOXA, then needs to get a signal
+for each event, and create a record of that event and
+save it until we get a request from the server.
+
+So we need to create a bucket or bin or list or pile
+of any events we have.  Initially the list is empty.
+When we get an event, we add it to the list.  If the
+list gets full, then what?
+
+When we get a request from the server, we format
+a response message and sent it off, setting the list
+to empty.
+
+So we need to wait for one of two inputs: an event
+or a request.  We would like to use the select()
+system call, but I don't see how to get an interrupt
+from the Moxa input lines.  So instead we poll for
+input.
+
