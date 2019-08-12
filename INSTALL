@@ -1,0 +1,24 @@
+#
+# What is needed to install this correctly
+#
+# we need 3 files:
+#    <executable> -- the binary executable program
+#    <config.txt> -- the config file
+#    <init_script> -- the script for init.d
+#
+# make directories
+mkdir /home/overhead
+mkdir /home/overhead/log
+
+# set up executable program
+copy <executable>  /home/overhead/overhead
+chmod 755          /home/overhead/overhead
+
+# sample configuration file
+copy <config.txt>  /home/overhead/config.txt
+
+# set up init scripts
+copy <init_script> /etc/init.d/overhead
+chmod 755     /etc/init.d/overhead
+ln -s /etc/init.d/overhead /etc/rc.d/rcS.d/S98overhead
+
